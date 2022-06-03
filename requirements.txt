@@ -1,5 +1,6 @@
 paddleseg
 fastapi
+uvicorn[standard]
 python-multipart
 numba
 scikit-image
