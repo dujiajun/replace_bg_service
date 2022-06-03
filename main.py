@@ -1,7 +1,7 @@
 import hashlib
 import os
 
-from fastapi import FastAPI, UploadFile
+from fastapi import Body, FastAPI, UploadFile
 from fastapi.responses import FileResponse
 
 from bg_replace import background_replace
@@ -32,3 +32,15 @@ async def create_upload_file(img: UploadFile, bg: UploadFile):
                        path_bg, path_out)
     # return {"msg": "OK"}
     return FileResponse(path_out)
+
+
+@app.get("/webhook/")
+def webhook(body=Body()):
+    print(body)
+    return {"msg": "OK"}
+
+
+@app.post("/webhook/")
+def webhook(body=Body()):
+    print(body)
+    return {"msg": "OK"}

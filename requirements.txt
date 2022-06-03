@@ -3,3 +3,4 @@ fastapi
 python-multipart
 numba
 scikit-image
+httpx
