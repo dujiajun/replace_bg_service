@@ -1,0 +1,5 @@
+paddleseg
+fastapi
+python-multipart
+numba
+scikit-image
