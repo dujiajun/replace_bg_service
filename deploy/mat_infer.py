@@ -310,7 +310,7 @@ class Predictor:
         output_names = self.predictor.get_output_names()
         output_handle = self.predictor.get_output_handle(output_names[0])
         args = self.args
-
+        alphas = [None] * num
         for i in tqdm.tqdm(range(0, num, args.batch_size)):
             # warm up
             if i == 0 and args.benchmark:
@@ -385,11 +385,13 @@ class Predictor:
                 trimap = trimap_inputs[j] if trimaps is not None else None
                 result = self._postprocess(
                     results[j], trans_info[j], trimap=trimap)
-                self._save_imgs(result, imgs[i + j])
+                alphas[i+j] = result
+                # self._save_imgs(result, imgs[i + j])
 
             if args.benchmark:
                 self.autolog.times.end(stamp=True)
         logger.info("Finish")
+        return alphas
 
     def _preprocess(self, img, trimap=None):
         data = {}
