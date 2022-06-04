@@ -4,3 +4,5 @@ uvicorn[standard]
 python-multipart
 numba
 scikit-image
+httpx
+beautifulsoup4
