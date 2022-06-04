@@ -75,23 +75,20 @@ async def webhook(body=Body()):
     if notification_type != 6:
         raise HTTPException(
             status_code=400, detail="Not a PM")
-    post_number = notification['post_number']
-    if post_number != 1:
-        raise HTTPException(
-            status_code=400, detail="Not the first post in topic")
-    topic_id = notification['topic_id']
-    # get post detail, get image urls
-    client = httpx.AsyncClient(headers=headers)
-    resp = await client.get(f"{DISCOURSE_BASE_URL}/t/{topic_id}.json")
-    if resp.status_code != httpx.codes.OK:
-        logger.error("Cannot load topic detail")
-        raise HTTPException(status_code=500, detail="Cannot load topic detail")
-    body = resp.json()
-    title = body['title']
+    post_id = notification['data']['original_post_id']
+    title = notification['data']['topic_title']
     if REQUIRED_TITLE_KEYWORD not in title:
         raise HTTPException(status_code=400, detail="No required title")
 
-    post = body['post_stream']['posts'][0]
+    topic_id = notification['topic_id']
+    # get post detail, get image urls
+    client = httpx.AsyncClient(headers=headers)
+    resp = await client.get(f"{DISCOURSE_BASE_URL}/posts/{post_id}.json")
+    if resp.status_code != httpx.codes.OK:
+        logger.error("Cannot load post detail")
+        raise HTTPException(status_code=500, detail="Cannot load post detail")
+    post = resp.json()
+    
     cooked: str = post['cooked']
     soup = BeautifulSoup(cooked, "html.parser")
 
