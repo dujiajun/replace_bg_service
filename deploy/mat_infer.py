@@ -312,43 +312,6 @@ class Predictor:
         args = self.args
         alphas = [None] * num
         for i in tqdm.tqdm(range(0, num, args.batch_size)):
-            # warm up
-            if i == 0 and args.benchmark:
-                for _ in range(5):
-                    img_inputs = []
-                    if trimaps is not None:
-                        trimap_inputs = []
-                    trans_info = []
-                    for j in range(i, i + args.batch_size):
-                        img = imgs[i]
-                        trimap = trimaps[i] if trimaps is not None else None
-                        data = self._preprocess(img=img, trimap=trimap)
-                        img_inputs.append(data['img'])
-                        if trimaps is not None:
-                            trimap_inputs.append(data['trimap'][
-                                np.newaxis, :, :])
-                        trans_info.append(data['trans_info'])
-                    img_inputs = np.array(img_inputs)
-                    if trimaps is not None:
-                        trimap_inputs = (
-                            np.array(trimap_inputs)).astype('float32')
-
-                    input_handle['img'].copy_from_cpu(img_inputs)
-                    if trimaps is not None:
-                        input_handle['trimap'].copy_from_cpu(trimap_inputs)
-                    self.predictor.run()
-                    results = output_handle.copy_to_cpu()
-
-                    results = results.squeeze(1)
-                    for j in range(args.batch_size):
-                        trimap = trimap_inputs[
-                            j] if trimaps is not None else None
-                        result = self._postprocess(
-                            results[j], trans_info[j], trimap=trimap)
-
-            # inference
-            if args.benchmark:
-                self.autolog.times.start()
 
             img_inputs = []
             if trimaps is not None:
@@ -370,13 +333,7 @@ class Predictor:
             if trimaps is not None:
                 input_handle['trimap'].copy_from_cpu(trimap_inputs)
 
-            if args.benchmark:
-                self.autolog.times.stamp()
-
             self.predictor.run()
-
-            if args.benchmark:
-                self.autolog.times.stamp()
 
             results = output_handle.copy_to_cpu()
 
@@ -388,8 +345,6 @@ class Predictor:
                 alphas[i+j] = result
                 # self._save_imgs(result, imgs[i + j])
 
-            if args.benchmark:
-                self.autolog.times.end(stamp=True)
         logger.info("Finish")
         return alphas
 
