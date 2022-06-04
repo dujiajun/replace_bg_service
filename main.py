@@ -1,15 +1,13 @@
 import hashlib
-import json
+import logging
 import os
 import re
 from dotenv import load_dotenv
-from io import BytesIO
 
 from fastapi import Body, FastAPI, UploadFile, HTTPException
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse
 import httpx
 from bs4 import BeautifulSoup
-from PIL import Image
 
 from bg_replace import background_replace
 
@@ -22,6 +20,7 @@ REQUIRED_TITLE_KEYWORD = os.getenv("REQUIRED_TITLE_KEYWORD")
 
 app = FastAPI()
 headers = {"Api-Key": DISCOURSE_API_KEY, "Api-Username": DISCOURSE_USERNAME}
+logger = logging.Logger("fastapi")
 
 
 def save_file(data: bytes, filename: str):
@@ -48,11 +47,17 @@ async def create_upload_file(img: UploadFile, bg: UploadFile):
     return FileResponse(path_out)
 
 
-def extract_url(node: str) -> str:
+def extract_url_from_lightbox(node) -> str:
     url = node['data-download-href']
     if url.startswith("//"):
         return "http:" + url
     return url
+
+
+def extract_url_from_img(node) -> str:
+    url = node['src']
+    filename = url.split("/")[-1].split(".")[0]
+    return f"{DISCOURSE_BASE_URL}/uploads/default/{filename}"
 
 
 @app.post("/webhook/")
@@ -79,6 +84,7 @@ async def webhook(body=Body()):
     client = httpx.AsyncClient(headers=headers)
     resp = await client.get(f"{DISCOURSE_BASE_URL}/t/{topic_id}.json")
     if resp.status_code != httpx.codes.OK:
+        logger.error("Cannot load topic detail")
         raise HTTPException(status_code=500, detail="Cannot load topic detail")
     body = resp.json()
     title = body['title']
@@ -89,20 +95,32 @@ async def webhook(body=Body()):
     cooked: str = post['cooked']
     soup = BeautifulSoup(cooked, "html.parser")
 
+    image_urls = []
+    # try eventually cooked (include a, lightbox)
     html_nodes: list = soup.find_all("a", "lightbox")
-    if len(html_nodes) < 2:
+
+    if len(html_nodes) >= 2:
+        image_urls: list[str] = list(map(
+            extract_url_from_lightbox,  html_nodes))
+    elif len(html_nodes) < 2:
+        # try partially cooked
+        html_nodes: list = soup.find_all("img")
+        image_urls: list[str] = list(map(
+            extract_url_from_img,  html_nodes))
+        print(html_nodes, image_urls)
+    if len(image_urls) < 2:
+        logger.error("No enough images")
         raise HTTPException(status_code=400, detail="No enough images")
-    html_nodes
-    image_urls: list[str] = list(map(
-        extract_url,  html_nodes))
 
     # download images from Discourse
     resp_front = await client.get(image_urls[0])
     if resp_front.status_code != httpx.codes.OK:
+        logger.error("Cannot download first image")
         raise HTTPException(
             status_code=500, detail="Cannot download first image")
     resp_bg = await client.get(image_urls[1])
     if resp_bg.status_code != httpx.codes.OK:
+        logger.error("Cannot download second image")
         raise HTTPException(
             status_code=500, detail="Cannot download second image")
     bg = resp_bg.content
@@ -121,6 +139,7 @@ async def webhook(body=Body()):
     resp_upload = await client.post(f"{DISCOURSE_BASE_URL}/uploads.json",
                                     data={"type": "composer"}, files={'file': open(path_out, 'rb')})
     if resp_upload.status_code != httpx.codes.OK:
+        logger.error("Cannot upload replaced image")
         raise HTTPException(
             status_code=500, detail="Cannot upload replaced image")
     uploaded = resp_upload.json()
@@ -134,6 +153,7 @@ async def webhook(body=Body()):
         "topic_id": topic_id,
     })
     if resp_new_pm.status_code != httpx.codes.OK:
+        logger.error("Cannot reply PM")
         raise HTTPException(status_code=500, detail="Cannot reply PM")
 
     resp_mark = await client.put(f"{DISCOURSE_BASE_URL}/notifications/mark-read.json", json={
