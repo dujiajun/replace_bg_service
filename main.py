@@ -4,10 +4,11 @@ import os
 import re
 from dotenv import load_dotenv
 
-from fastapi import Body, FastAPI, UploadFile, HTTPException
+from fastapi import Body, FastAPI, UploadFile, HTTPException, Response, status
 from fastapi.responses import FileResponse
 import httpx
 from bs4 import BeautifulSoup
+
 
 from bg_replace import background_replace
 
@@ -60,35 +61,15 @@ def extract_url_from_img(node) -> str:
     return f"{DISCOURSE_BASE_URL}/uploads/default/{filename}"
 
 
-@app.post("/webhook/")
-async def webhook(body=Body()):
-    notification = body['notification']
-
-    user_id = notification['user_id']
-    if user_id != DISCOURSE_USER_ID:
-        raise HTTPException(status_code=401, detail="Not for Bot")
-    read = notification['read']
-    if read:
-        raise HTTPException(
-            status_code=400, detail="Already responsed")
-    notification_type = notification['notification_type']
-    if notification_type != 6:
-        raise HTTPException(
-            status_code=400, detail="Not a PM")
-    post_id = notification['data']['original_post_id']
-    title = notification['data']['topic_title']
-    if REQUIRED_TITLE_KEYWORD not in title:
-        raise HTTPException(status_code=400, detail="No required title")
-
-    topic_id = notification['topic_id']
-    # get post detail, get image urls
-    client = httpx.AsyncClient(headers=headers)
+async def get_post_detail(client: httpx.AsyncClient, post_id: int):
     resp = await client.get(f"{DISCOURSE_BASE_URL}/posts/{post_id}.json")
     if resp.status_code != httpx.codes.OK:
         logger.error("Cannot load post detail")
         raise HTTPException(status_code=500, detail="Cannot load post detail")
-    post = resp.json()
-    
+    return resp.json()
+
+
+def parse_image_urls(post: dict) -> list[str]:
     cooked: str = post['cooked']
     soup = BeautifulSoup(cooked, "html.parser")
 
@@ -104,12 +85,10 @@ async def webhook(body=Body()):
         html_nodes: list = soup.find_all("img")
         image_urls: list[str] = list(map(
             extract_url_from_img,  html_nodes))
-        print(html_nodes, image_urls)
-    if len(image_urls) < 2:
-        logger.error("No enough images")
-        raise HTTPException(status_code=400, detail="No enough images")
+    return image_urls
 
-    # download images from Discourse
+
+async def download_from_discourse(client: httpx.AsyncClient, image_urls):
     resp_front = await client.get(image_urls[0])
     if resp_front.status_code != httpx.codes.OK:
         logger.error("Cannot download first image")
@@ -120,19 +99,10 @@ async def webhook(body=Body()):
         logger.error("Cannot download second image")
         raise HTTPException(
             status_code=500, detail="Cannot download second image")
-    bg = resp_bg.content
+    return resp_front, resp_bg
 
-    # do replace
-    reg = re.compile("filename=\"(.+)\"")
-    fname = reg.findall(resp_front.headers["Content-Disposition"])[0]
-    name_img, path_img = save_file(resp_front.content, fname)
 
-    path_out = os.path.join("output", name_img)
-    background_replace(path_img,
-                       bg, path_out)
-
-    # upload result to Discourse
-
+async def reply_to_discourse(client: httpx.AsyncClient, topic_id: str, path_out: str):
     resp_upload = await client.post(f"{DISCOURSE_BASE_URL}/uploads.json",
                                     data={"type": "composer"}, files={'file': open(path_out, 'rb')})
     if resp_upload.status_code != httpx.codes.OK:
@@ -153,8 +123,56 @@ async def webhook(body=Body()):
         logger.error("Cannot reply PM")
         raise HTTPException(status_code=500, detail="Cannot reply PM")
 
-    resp_mark = await client.put(f"{DISCOURSE_BASE_URL}/notifications/mark-read.json", json={
+
+@app.post("/webhook/", status_code=200)
+async def webhook(response: Response, body=Body()):
+    notification = body['notification']
+
+    user_id = notification['user_id']
+    if user_id != DISCOURSE_USER_ID:
+        return {"detail": "Not for Bot"}
+    read = notification['read']
+    if read:
+        return {"detail": "Already responsed"}
+    notification_type = notification['notification_type']
+    if notification_type != 6:
+        return {"detail": "Not a PM"}
+    post_id = notification['data']['original_post_id']
+    title = notification['data']['topic_title']
+    if REQUIRED_TITLE_KEYWORD not in title:
+        return {"detail": "No required title"}
+
+    topic_id = notification['topic_id']
+    # get post detail, get image urls
+    client = httpx.AsyncClient(headers=headers)
+
+    post = await get_post_detail(client, post_id)
+    image_urls = parse_image_urls(post)
+
+    if len(image_urls) < 2:
+        logger.error("No enough images")
+        raise HTTPException(status_code=400, detail="No enough images")
+
+    # download images from Discourse
+    resp_front, resp_bg = await download_from_discourse(client, image_urls)
+    bg = resp_bg.content
+
+    # do replace
+    reg = re.compile("filename=\"(.+)\"")
+    fname = reg.findall(resp_front.headers["Content-Disposition"])[0]
+    name_img, path_img = save_file(resp_front.content, fname)
+
+    path_out = os.path.join("output", name_img)
+    background_replace(path_img,
+                       bg, path_out)
+
+    # upload result to Discourse
+    await reply_to_discourse(client, topic_id, path_out)
+
+    # mark nofitification as read
+    await client.put(f"{DISCOURSE_BASE_URL}/notifications/mark-read.json", json={
         "id": notification['id'],
     })
-
-    return resp_mark.json()
+    # response to webhook
+    response.status_code = status.HTTP_201_CREATED
+    return {"detail": "All OK"}
