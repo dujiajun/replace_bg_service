@@ -27,7 +27,7 @@ logger = logging.Logger("fastapi")
 def save_file(data: bytes, filename: str):
     ext_img = filename.split(".")[-1]
     name_img = hashlib.new("sha1", data).hexdigest() + "." + ext_img
-    path_img = os.path.join("uploads", name_img)
+    path_img = os.path.join("original", name_img)
     with open(path_img, mode="wb") as f:
         f.write(data)
     return name_img, path_img
@@ -124,6 +124,12 @@ async def reply_to_discourse(client: httpx.AsyncClient, topic_id: str, path_out:
         raise HTTPException(status_code=500, detail="Cannot reply PM")
 
 
+def delete_images(images: str):
+    for image in images:
+        if os.path.isfile(image):
+            os.remove(image)
+
+
 @app.post("/webhook/", status_code=200)
 async def webhook(response: Response, body=Body()):
     notification = body['notification']
@@ -167,12 +173,20 @@ async def webhook(response: Response, body=Body()):
                        bg, path_out)
 
     # upload result to Discourse
-    await reply_to_discourse(client, topic_id, path_out)
+    try:
+        await reply_to_discourse(client, topic_id, path_out)
+    except HTTPException:
+        delete_images([name_img, path_out])
+        raise
 
     # mark nofitification as read
     await client.put(f"{DISCOURSE_BASE_URL}/notifications/mark-read.json", json={
         "id": notification['id'],
     })
+
+    # delete image files
+    delete_images([name_img, path_out])
+
     # response to webhook
     response.status_code = status.HTTP_201_CREATED
     return {"detail": "All OK"}

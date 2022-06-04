@@ -1,4 +1,5 @@
 output/
+original/
 uploads/
 models/*
 !models/download_export_model.py
