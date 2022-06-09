@@ -10,7 +10,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 
-from bg_replace import background_replace
+from bg_replace import background_replace, only_matting
 
 load_dotenv()
 DISCOURSE_API_KEY = os.getenv("DISCOURSE_API_KEY")
@@ -45,6 +45,17 @@ async def create_upload_file(img: UploadFile, bg: UploadFile):
                        data_bg, path_out)
     # return {"msg": "OK"}
     # return StreamingResponse(buf, media_type="image/jpeg")
+    return FileResponse(path_out)
+
+
+@app.post("/matting/")
+async def create_upload_file(image: UploadFile):
+    data_img = await image.read()
+    _, path_img = save_file(data_img, image.filename)
+
+    path_out = os.path.join("output/clip", path_img.split(".")[0] + ".png")
+    only_matting(path_img)
+
     return FileResponse(path_out)
 
 

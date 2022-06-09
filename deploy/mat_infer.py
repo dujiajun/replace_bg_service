@@ -298,7 +298,7 @@ class Predictor:
                 self.pred_cfg.set_trt_dynamic_shape_info(
                     min_input_shape, max_input_shape, opt_input_shape)
 
-    def run(self, imgs, trimaps=None, imgs_dir=None):
+    def run(self, imgs, trimaps=None, imgs_dir=None, output=False):
         self.imgs_dir = imgs_dir
         num = len(imgs)
         input_names = self.predictor.get_input_names()
@@ -343,7 +343,8 @@ class Predictor:
                 result = self._postprocess(
                     results[j], trans_info[j], trimap=trimap)
                 alphas[i+j] = result
-                # self._save_imgs(result, imgs[i + j])
+                if output:
+                    self._save_imgs(result, imgs[i + j])
 
         logger.info("Finish")
         return alphas
@@ -385,12 +386,12 @@ class Predictor:
         name, ext = os.path.splitext(img_path)
         if name[0] == '/':
             name = name[1:]
-        alpha_save_path = os.path.join(args.save_dir, 'alpha/', name + '.png')
+        # alpha_save_path = os.path.join(args.save_dir, 'alpha/', name + '.png')
         clip_save_path = os.path.join(args.save_dir, 'clip/', name + '.png')
 
         # save alpha
-        mkdir(alpha_save_path)
-        cv2.imwrite(alpha_save_path, alpha)
+        # mkdir(alpha_save_path)
+        # cv2.imwrite(alpha_save_path, alpha)
 
         # save clip image
         mkdir(clip_save_path)

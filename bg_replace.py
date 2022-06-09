@@ -7,6 +7,16 @@ from deploy.mat_infer import Predictor, parse_args
 predictor = None
 
 
+def only_matting(img_path):
+    global predictor
+    args = parse_args(['--config', 'models/pp-humanmatting-resnet34_vd/deploy.yaml',
+                       '--image_path', img_path, '--save_dir', './output'])
+
+    if predictor is None:
+        predictor = Predictor(args)
+    predictor.run(imgs=[args.image_path], output=True)
+
+
 def background_replace(img_path, bg_img, out_img_path):
     global predictor
     args = parse_args(['--config', 'models/pp-humanmatting-resnet34_vd/deploy.yaml',
